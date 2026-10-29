@@ -21,6 +21,26 @@ spec:
 apiVersion: tekton.dev/v1beta1
 kind: Task
 metadata:
+  name: flake8
+spec:
+  description: This task runs flake8 linting checks
+  workspaces:
+    - name: source
+  steps:
+    - name: lint
+      image: python:3.9-slim
+      workingDir: $(workspaces.source.path)
+      script: |
+        #!/usr/bin/env sh
+        set -e
+        pip install --upgrade pip
+        pip install flake8
+        flake8 service --count --select=E9,F63,F7,F82 --show-source --statistics
+        flake8 service --count --max-complexity=10 --max-line-length=127 --statistics
+---
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
   name: nose
 spec:
   description: This task runs nose unit tests with code coverage
@@ -36,3 +56,43 @@ spec:
         pip install --upgrade pip
         pip install -r requirements.txt
         nosetests -v --with-spec --spec-color --with-coverage --cover-package=service
+---
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: buildah
+spec:
+  description: This task builds and pushes a container image using buildah
+  workspaces:
+    - name: source
+  params:
+    - name: IMAGE
+      type: string
+      description: Reference of the image buildah will produce.
+      default: image-registry.openshift-image-registry.svc:5000/$(context.pipelineRun.namespace)/accounts:latest
+  steps:
+    - name: build-and-push
+      image: quay.io/buildah/stable:v1.23.3
+      workingDir: $(workspaces.source.path)
+      securityContext:
+        privileged: true
+      script: |
+        #!/usr/bin/env bash
+        set -e
+        buildah --storage-driver=vfs bud --format=docker -f ./Dockerfile -t $(params.IMAGE) .
+        buildah --storage-driver=vfs push $(params.IMAGE)
+---
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: deploy
+spec:
+  description: This task deploys the application image to OpenShift
+  steps:
+    - name: deploy
+      image: quay.io/openshift/origin-cli:latest
+      script: |
+        #!/usr/bin/env bash
+        set -e
+        oc rollout restart deployment/accounts
+        oc rollout status deployment/accounts
