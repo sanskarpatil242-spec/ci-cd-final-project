@@ -1,0 +1,38 @@
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: cleanup
+spec:
+  description: This task cleans up the workspace directory before git clone
+  workspaces:
+    - name: source
+  steps:
+    - name: clean
+      image: alpine:latest
+      workingDir: $(workspaces.source.path)
+      securityContext:
+        runAsUser: 0
+      script: |
+        #!/usr/bin/env sh
+        set -eu
+        rm -rf *
+        rm -rf .* 2>/dev/null || true
+---
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: nose
+spec:
+  description: This task runs nose unit tests with code coverage
+  workspaces:
+    - name: source
+  steps:
+    - name: run-tests
+      image: python:3.9-slim
+      workingDir: $(workspaces.source.path)
+      script: |
+        #!/usr/bin/env sh
+        set -e
+        pip install --upgrade pip
+        pip install -r requirements.txt
+        nosetests -v --with-spec --spec-color --with-coverage --cover-package=service
